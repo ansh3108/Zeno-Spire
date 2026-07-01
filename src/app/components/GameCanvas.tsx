@@ -128,11 +128,16 @@ export default function GameCanvas() {
     )
 
     const instancedMeshes = [
-      new THREE.InstancedMesh(platGeo, materials[0], 400),
-      new THREE.InstancedMesh(platGeo, materials[1], 400),
-      new THREE.InstancedMesh(platGeo, materials[2], 400)
+      new THREE.InstancedMesh(platGeo, materials[0], 800),
+      new THREE.InstancedMesh(platGeo, materials[1], 800),
+      new THREE.InstancedMesh(platGeo, materials[2], 800)
     ]
-    instancedMeshes.forEach(m => scene.add(m))
+    
+    instancedMeshes.forEach(m => {
+      m.frustumCulled = false
+      m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 500000)
+      scene.add(m)
+    })
 
     const pCount = 1500
     const pGeo = new THREE.BufferGeometry()
@@ -148,8 +153,13 @@ export default function GameCanvas() {
     scene.add(particles)
 
     const keys = { a: false, d: false, space: false, q: false, e: false }
+    let spacePressedThisFrame = false
+
     const handleKey = (e: KeyboardEvent, isDown: boolean) => {
       const k = e.code.toLowerCase().replace('key', '')
+      if (k === 'space' && isDown && !keys.space) {
+        spacePressedThisFrame = true
+      }
       if (k in keys) keys[k as keyof typeof keys] = isDown
       if (isDown && !audioCtxRef.current) initAudio()
       if (isDown && k === 'space' && !gameStarted) {
@@ -187,9 +197,30 @@ export default function GameCanvas() {
     let highestY = py
     let shakeIntensity = 0
     let jumpCount = 0
+    let onGround = false
     
     const trailHistory: THREE.Vector3[] = Array(trailCount).fill(new THREE.Vector3(0, 10, 0))
     const dummy = new THREE.Object3D()
+
+    const generatePlatforms = (S: number, playerY: number) => {
+      const plats = []
+      const stepY = 8 * S
+      const startIdx = Math.floor(playerY / stepY) - 80
+      const endIdx = startIdx + 160
+      const pattern = [1, 4, 7, 9, 10, 9, 7, 4, 1, -2, -5, -7, -8, -7, -5, -2]
+
+      for (let idx = startIdx; idx <= endIdx; idx++) {
+        if (Math.abs(idx) % 11 === 0) continue
+        const pVal = pattern[(idx % 16 + 16) % 16]
+        plats.push({
+          x: pVal * S,
+          y: idx * stepY,
+          top: idx * stepY + 0.25 * S,
+          w: 5.5 * S
+        })
+      }
+      return plats
+    }
 
     const animate = () => {
       animationId = requestAnimationFrame(animate)
@@ -246,47 +277,38 @@ export default function GameCanvas() {
       trailGeo.attributes.position.needsUpdate = true
 
       const targetVx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0)
-      vx += (targetVx * 20 * currentScale - vx) * 12 * delta
+      vx += (targetVx * 25 * currentScale - vx) * 15 * delta
 
-      vy -= 80 * currentScale * delta
-      vy = Math.max(vy, -100 * currentScale)
+      vy -= 90 * currentScale * delta
+      vy = Math.max(vy, -120 * currentScale)
       
       let nextX = px + vx * delta
       let nextY = py + vy * delta
 
       const playerW = 0.6 * currentScale
-      let canJump = false
+      onGround = false
       let maxHitY = -Infinity
 
       for (let l = -1; l <= 1; l++) {
         const S = Math.pow(10, l)
-        const stepY = 8 * S
-        const startIdx = Math.floor(py / stepY) - 30
-        const endIdx = startIdx + 60
-        const pattern = [0, 3, 6, 8, 9, 8, 6, 3, 0, -3, -6, -8, -9, -8, -6, -3]
+        const plats = generatePlatforms(S, py)
 
-        for (let idx = startIdx; idx <= endIdx; idx++) {
-          if (Math.abs(idx) % 7 === 0) continue
-          const pVal = pattern[(idx % 16 + 16) % 16]
-          const pX = pVal * S
-          const pTop = idx * stepY + 0.25 * S
-          const pW = 5.5 * S
-
-          const left = pX - pW / 2 - playerW / 2
-          const right = pX + pW / 2 + playerW / 2
+        for (const p of plats) {
+          const left = p.x - p.w / 2 - playerW / 2
+          const right = p.x + p.w / 2 + playerW / 2
           
           if (nextX > left && nextX < right) {
-            if (py >= pTop - 0.2 * currentScale && nextY <= pTop) {
-              if (pTop > maxHitY) {
-                maxHitY = pTop
-                canJump = true
+            if (py >= p.top - 0.2 * currentScale && nextY <= p.top) {
+              if (p.top > maxHitY) {
+                maxHitY = p.top
+                onGround = true
               }
             }
           }
         }
       }
 
-      if (canJump) {
+      if (onGround) {
         if (vy < -20 * currentScale) {
           shakeIntensity = Math.min(Math.abs(vy) * 0.012, 0.5)
           playTone(60, 'triangle', 0.25, 0.2)
@@ -295,14 +317,22 @@ export default function GameCanvas() {
         vy = 0
         playerLight.intensity = 12
         jumpCount = 0
+      } else {
+        playerLight.intensity += (6 - playerLight.intensity) * 0.1
       }
-      playerLight.intensity += (6 - playerLight.intensity) * 0.1
 
-      if (keys.space && canJump && jumpCount < 2) {
-        vy = 32 * currentScale
-        keys.space = false
-        jumpCount++
-        playTone(400 * currentScale * (1 + jumpCount * 0.3), 'square', 0.12, 0.1)
+      if (spacePressedThisFrame) {
+        if (onGround) {
+          vy = 40 * currentScale
+          jumpCount = 1
+          onGround = false
+          playTone(400 * currentScale, 'square', 0.12, 0.1)
+        } else if (jumpCount < 2) {
+          vy = 35 * currentScale
+          jumpCount = 2
+          playTone(600 * currentScale, 'square', 0.12, 0.1)
+        }
+        spacePressedThisFrame = false
       }
 
       px = nextX
@@ -352,19 +382,13 @@ export default function GameCanvas() {
         const S = Math.pow(10, l)
         const meshIdx = (l + 1 + colorShift) % 3
         const mesh = instancedMeshes[meshIdx]
-        
-        const stepY = 8 * S
-        const startIdx = Math.floor(py / stepY) - 30
-        const endIdx = startIdx + 60
-        const pattern = [0, 3, 6, 8, 9, 8, 6, 3, 0, -3, -6, -8, -9, -8, -6, -3]
+        const plats = generatePlatforms(S, py)
         
         let i = 0
-        for (let idx = startIdx; idx <= endIdx; idx++) {
-          if (Math.abs(idx) % 7 === 0) continue
-          if (i >= 400) break
-          const pVal = pattern[(idx % 16 + 16) % 16]
-          dummy.position.set(pVal * S, idx * stepY, -2 * S)
-          dummy.scale.set(5.5 * S, 0.5 * S, 4 * S)
+        for (const p of plats) {
+          if (i >= 800) break
+          dummy.position.set(p.x, p.y, -2 * S)
+          dummy.scale.set(p.w, 0.5 * S, 4 * S)
           dummy.updateMatrix()
           mesh.setMatrixAt(i++, dummy.matrix)
         }
@@ -476,6 +500,3 @@ export default function GameCanvas() {
     </div>
   )
 }
-
-
-
