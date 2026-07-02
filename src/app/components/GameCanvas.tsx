@@ -13,6 +13,7 @@ export default function GameCanvas() {
   const [score, setScore] = useState(0)
   const [highScore, setHighScore] = useState(0)
   const [gameStarted, setGameStarted] = useState(false)
+  const [currentBiome, setCurrentBiome] = useState<'normal' | 'micro' | 'macro'>('normal')
 
   useEffect(() => {
     if (!mountRef.current) return
@@ -43,94 +44,49 @@ export default function GameCanvas() {
     composer.addPass(bloomPass)
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.3))
-
     const dirLight = new THREE.DirectionalLight(0x4477ff, 4)
     dirLight.position.set(20, 50, 30)
     scene.add(dirLight)
-
     const rimLight = new THREE.DirectionalLight(0xff0055, 2.5)
     rimLight.position.set(-30, -10, -20)
     scene.add(rimLight)
 
     const monolithGroup = new THREE.Group()
     scene.add(monolithGroup)
-
-    const monolithMat = new THREE.MeshPhysicalMaterial({
-      color: 0x05070a,
-      metalness: 0.95,
-      roughness: 0.3,
-      clearcoat: 1.0
-    })
+    const monolithMat = new THREE.MeshPhysicalMaterial({ color: 0x05070a, metalness: 0.95, roughness: 0.3, clearcoat: 1.0 })
     const monolith = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 3000, 32), monolithMat)
     monolith.position.set(0, 0, -25)
     monolithGroup.add(monolith)
-
-    const wireMat = new THREE.MeshBasicMaterial({ 
-      color: 0x00ffff, 
-      wireframe: true, 
-      transparent: true, 
-      opacity: 0.08 
-    })
+    const wireMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.08 })
     const monolithWire = new THREE.Mesh(new THREE.CylinderGeometry(15.3, 15.3, 3000, 16, 150), wireMat)
     monolithWire.position.set(0, 0, -25)
     monolithGroup.add(monolithWire)
 
     const playerGroup = new THREE.Group()
     scene.add(playerGroup)
-
-    const coreGeo = new THREE.OctahedronGeometry(0.4, 0)
-    const coreMat = new THREE.MeshPhysicalMaterial({ 
-      color: 0x00ffff, 
-      emissive: 0x00ffff, 
-      emissiveIntensity: 1.2,
-      roughness: 0.0,
-      metalness: 1.0,
-      clearcoat: 1.0,
-      transparent: true,
-      opacity: 0.98
-    })
-    const playerCore = new THREE.Mesh(coreGeo, coreMat)
+    const coreMat = new THREE.MeshPhysicalMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.2, roughness: 0.0, metalness: 1.0, clearcoat: 1.0, transparent: true, opacity: 0.98 })
+    const playerCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.4, 0), coreMat)
     playerGroup.add(playerCore)
-
-    const ringMat = new THREE.MeshStandardMaterial({ 
-      color: 0xffffff, 
-      emissive: 0x1133aa,
-      emissiveIntensity: 1.0,
-      roughness: 0.2, 
-      metalness: 1.0 
-    })
-    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.04, 16, 64), ringMat)
-    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.03, 16, 64), ringMat)
-    playerGroup.add(ring1, ring2)
-
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x1133aa, emissiveIntensity: 1.0, roughness: 0.2, metalness: 1.0 })
+    playerGroup.add(new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.04, 16, 64), ringMat))
+    playerGroup.add(new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.03, 16, 64), ringMat))
     const playerLight = new THREE.PointLight(0x00ffff, 8, 30)
     playerGroup.add(playerLight)
 
-    const trailCount = 25
     const trailGeo = new THREE.BufferGeometry()
-    const trailPos = new Float32Array(trailCount * 3)
+    const trailPos = new Float32Array(75)
     trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3))
-    const trailMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.7 })
-    const trail = new THREE.Line(trailGeo, trailMat)
+    const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.7 }))
     scene.add(trail)
 
-    const platGeo = new THREE.BoxGeometry(1, 1, 1)
-    const baseColors = [0x00ffff, 0xff0055, 0x8800ff]
-    const materials = baseColors.map(c => 
-      new THREE.MeshPhysicalMaterial({ 
-        color: 0x020305, 
-        emissive: c, 
-        emissiveIntensity: 0.8, 
-        roughness: 0.1, 
-        metalness: 0.95,
-        clearcoat: 1.0 
-      })
-    )
+    const normalMat = new THREE.MeshPhysicalMaterial({ color: 0x020305, emissive: 0xff0055, emissiveIntensity: 0.8, roughness: 0.1, metalness: 0.95, clearcoat: 1.0 })
+    const microMat = new THREE.MeshPhysicalMaterial({ color: 0x0a1a0a, emissive: 0x00ff88, emissiveIntensity: 0.9, roughness: 0.4, metalness: 0.2, clearcoat: 0.5, transparent: true, opacity: 0.9 })
+    const macroMat = new THREE.MeshStandardMaterial({ color: 0x2a2a35, emissive: 0x111122, emissiveIntensity: 0.3, roughness: 0.9, metalness: 0.1 })
 
     const instancedMeshes = [
-      new THREE.InstancedMesh(platGeo, materials[0], 800),
-      new THREE.InstancedMesh(platGeo, materials[1], 800),
-      new THREE.InstancedMesh(platGeo, materials[2], 800)
+      new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), normalMat, 800),
+      new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), microMat, 800),
+      new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), macroMat, 800)
     ]
     
     instancedMeshes.forEach(m => {
@@ -139,32 +95,36 @@ export default function GameCanvas() {
       scene.add(m)
     })
 
-    const pCount = 1500
+    const laserGroup = new THREE.Group()
+    scene.add(laserGroup)
+    const laserMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 })
+    const lasers: THREE.Mesh[] = []
+    for (let i = 0; i < 10; i++) {
+      const laser = new THREE.Mesh(new THREE.BoxGeometry(100, 0.5, 0.5), laserMat)
+      laser.position.set(0, 100 + i * 300, -5)
+      laserGroup.add(laser)
+      lasers.push(laser)
+    }
+
     const pGeo = new THREE.BufferGeometry()
-    const pPos = new Float32Array(pCount * 3)
-    for(let i = 0; i < pCount; i++) {
+    const pPos = new Float32Array(4500)
+    for(let i = 0; i < 1500; i++) {
       pPos[i*3] = (Math.random() - 0.5) * 200
       pPos[i*3+1] = (Math.random() - 0.5) * 200
       pPos[i*3+2] = (Math.random() - 0.5) * 80 - 10
     }
     pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3))
-    const pMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.5 })
-    const particles = new THREE.Points(pGeo, pMat)
-    scene.add(particles)
+    scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.5 })))
 
     const keys = { a: false, d: false, space: false, q: false, e: false }
     let spacePressedThisFrame = false
 
     const handleKey = (e: KeyboardEvent, isDown: boolean) => {
       const k = e.code.toLowerCase().replace('key', '')
-      if (k === 'space' && isDown && !keys.space) {
-        spacePressedThisFrame = true
-      }
+      if (k === 'space' && isDown && !keys.space) spacePressedThisFrame = true
       if (k in keys) keys[k as keyof typeof keys] = isDown
       if (isDown && !audioCtxRef.current) initAudio()
-      if (isDown && k === 'space' && !gameStarted) {
-        setGameStarted(true)
-      }
+      if (isDown && k === 'space' && !gameStarted) setGameStarted(true)
     }
     window.addEventListener('keydown', e => handleKey(e, true))
     window.addEventListener('keyup', e => handleKey(e, false))
@@ -172,7 +132,8 @@ export default function GameCanvas() {
     const initAudio = () => {
       if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
     }
-    const playTone = (freq: number, type: OscillatorType, duration: number, vol: number = 0.1) => {
+    
+    const playTone = (freq: number, type: OscillatorType, duration: number, vol = 0.1) => {
       if (!audioCtxRef.current) return
       const osc = audioCtxRef.current.createOscillator()
       const gain = audioCtxRef.current.createGain()
@@ -186,82 +147,80 @@ export default function GameCanvas() {
       osc.stop(audioCtxRef.current.currentTime + duration)
     }
 
-    let px = 0, py = 10
-    let vx = 0, vy = 0
-    let currentScale = 1
-    let targetScale = 1
-    let colorShift = 0
-    let shiftsCompleted = 0
-    let lastTime = performance.now()
-    let animationId: number
-    let highestY = py
-    let shakeIntensity = 0
-    let jumpCount = 0
-    let onGround = false
-    
-    const trailHistory: THREE.Vector3[] = Array(trailCount).fill(new THREE.Vector3(0, 10, 0))
+    let px = 0, py = 10, vx = 0, vy = 0
+    let currentScale = 1, targetScale = 1, colorShift = 0, shiftsCompleted = 0
+    let lastTime = performance.now(), highestY = py, shakeIntensity = 0, jumpCount = 0, onGround = false
+    const trailHistory = Array(25).fill(new THREE.Vector3(0, 10, 0))
     const dummy = new THREE.Object3D()
 
     const generatePlatforms = (S: number, playerY: number) => {
       const plats = []
       const stepY = 8 * S
       const startIdx = Math.floor(playerY / stepY) - 80
-      const endIdx = startIdx + 160
       const pattern = [1, 4, 7, 9, 10, 9, 7, 4, 1, -2, -5, -7, -8, -7, -5, -2]
 
-      for (let idx = startIdx; idx <= endIdx; idx++) {
+      for (let idx = startIdx; idx <= startIdx + 160; idx++) {
         if (Math.abs(idx) % 11 === 0) continue
         const pVal = pattern[(idx % 16 + 16) % 16]
-        plats.push({
-          x: pVal * S,
-          y: idx * stepY,
-          top: idx * stepY + 0.25 * S,
-          w: 5.5 * S
-        })
+        plats.push({ x: pVal * S, y: idx * stepY, top: idx * stepY + 0.25 * S, w: 5.5 * S })
       }
       return plats
     }
 
+    const updateBiome = (scale: number) => {
+      let newBiome: 'normal' | 'micro' | 'macro' = 'normal'
+      let targetColor = new THREE.Color(0x010204)
+      let targetFogDensity = 0.012
+
+      if (scale < 0.3) {
+        newBiome = 'micro'
+        targetColor = new THREE.Color(0x051a0a)
+        targetFogDensity = 0.04
+      } else if (scale > 3.0) {
+        newBiome = 'macro'
+        targetColor = new THREE.Color(0x020208)
+        targetFogDensity = 0.005
+      }
+
+      if (newBiome !== currentBiome) setCurrentBiome(newBiome)
+
+      const bg = scene.background as THREE.Color
+      if (bg) bg.lerp(targetColor, 0.05)
+      
+      const fog = scene.fog as THREE.FogExp2
+      if (fog) {
+        fog.color.lerp(targetColor, 0.05)
+        fog.density += (targetFogDensity - fog.density) * 0.05
+      }
+    }
+
     const animate = () => {
-      animationId = requestAnimationFrame(animate)
+      const animationId = requestAnimationFrame(animate)
       const now = performance.now()
       const delta = Math.min((now - lastTime) / 1000, 0.03)
       lastTime = now
-
       const t = now * 0.002
+
       playerCore.rotation.y = t * 1.5
       playerCore.rotation.x = t * 0.8
-      ring1.rotation.x = Math.PI / 2 + Math.sin(t) * 0.4
-      ring1.rotation.y = t * 2
-      ring2.rotation.z = Math.PI / 2 + Math.cos(t * 1.1) * 0.5
-      ring2.rotation.x = -t * 1.5
+      playerGroup.children[1].rotation.x = Math.PI / 2 + Math.sin(t) * 0.4
+      playerGroup.children[1].rotation.y = t * 2
+      playerGroup.children[2].rotation.z = Math.PI / 2 + Math.cos(t * 1.1) * 0.5
+      playerGroup.children[2].rotation.x = -t * 1.5
       
       if (keys.q) targetScale *= 0.94
       if (keys.e) targetScale *= 1.06
       currentScale += (targetScale - currentScale) * 14 * delta
+      updateBiome(currentScale)
 
       if (currentScale > 3.1622) {
-        currentScale /= 10
-        targetScale /= 10
-        px /= 10
-        py /= 10
-        highestY /= 10
-        colorShift = (colorShift + 1) % 3
-        shiftsCompleted++
-        setScore(shiftsCompleted)
-        shakeIntensity = 1.0
-        playTone(150 / currentScale, 'sine', 0.6, 0.25)
+        currentScale /= 10; targetScale /= 10; px /= 10; py /= 10; highestY /= 10
+        colorShift = (colorShift + 1) % 3; shiftsCompleted++; setScore(shiftsCompleted)
+        shakeIntensity = 1.0; playTone(150 / currentScale, 'sine', 0.6, 0.25)
       } else if (currentScale < 0.3162) {
-        currentScale *= 10
-        targetScale *= 10
-        px *= 10
-        py *= 10
-        highestY *= 10
-        colorShift = (colorShift + 2) % 3
-        shiftsCompleted--
-        setScore(shiftsCompleted)
-        shakeIntensity = 1.0
-        playTone(800 * currentScale, 'sine', 0.6, 0.25)
+        currentScale *= 10; targetScale *= 10; px *= 10; py *= 10; highestY *= 10
+        colorShift = (colorShift + 2) % 3; shiftsCompleted--; setScore(shiftsCompleted)
+        shakeIntensity = 1.0; playTone(800 * currentScale, 'sine', 0.6, 0.25)
       }
 
       setScaleUi(currentScale)
@@ -269,7 +228,7 @@ export default function GameCanvas() {
       
       trailHistory.pop()
       trailHistory.unshift(new THREE.Vector3(px, py + 0.5 * currentScale, 0))
-      for (let i = 0; i < trailCount; i++) {
+      for (let i = 0; i < 25; i++) {
         trailPos[i*3] = trailHistory[i].x
         trailPos[i*3+1] = trailHistory[i].y
         trailPos[i*3+2] = trailHistory[i].z
@@ -278,33 +237,32 @@ export default function GameCanvas() {
 
       const targetVx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0)
       vx += (targetVx * 25 * currentScale - vx) * 15 * delta
-
       vy -= 90 * currentScale * delta
       vy = Math.max(vy, -120 * currentScale)
       
       let nextX = px + vx * delta
       let nextY = py + vy * delta
-
       const playerW = 0.6 * currentScale
       onGround = false
       let maxHitY = -Infinity
 
       for (let l = -1; l <= 1; l++) {
         const S = Math.pow(10, l)
-        const plats = generatePlatforms(S, py)
-
-        for (const p of plats) {
-          const left = p.x - p.w / 2 - playerW / 2
-          const right = p.x + p.w / 2 + playerW / 2
-          
-          if (nextX > left && nextX < right) {
-            if (py >= p.top - 0.2 * currentScale && nextY <= p.top) {
-              if (p.top > maxHitY) {
-                maxHitY = p.top
-                onGround = true
-              }
+        for (const p of generatePlatforms(S, py)) {
+          if (nextX > p.x - p.w / 2 - playerW / 2 && nextX < p.x + p.w / 2 + playerW / 2) {
+            if (py >= p.top - 0.2 * currentScale && nextY <= p.top && p.top > maxHitY) {
+              maxHitY = p.top
+              onGround = true
             }
           }
+        }
+      }
+
+      for (const laser of lasers) {
+        const laserY = laser.position.y * currentScale
+        if (Math.abs(py - laserY) < 1.0 * currentScale && Math.abs(px) < 50 * currentScale && currentScale > 0.2) {
+          py = highestY + 15 * currentScale; vy = 0; shakeIntensity = 1.0
+          playTone(100, 'sawtooth', 0.5, 0.3)
         }
       }
 
@@ -313,49 +271,35 @@ export default function GameCanvas() {
           shakeIntensity = Math.min(Math.abs(vy) * 0.012, 0.5)
           playTone(60, 'triangle', 0.25, 0.2)
         }
-        nextY = maxHitY
-        vy = 0
-        playerLight.intensity = 12
-        jumpCount = 0
+        nextY = maxHitY; vy = 0; playerLight.intensity = 12; jumpCount = 0
       } else {
         playerLight.intensity += (6 - playerLight.intensity) * 0.1
       }
 
       if (spacePressedThisFrame) {
         if (onGround) {
-          vy = 40 * currentScale
-          jumpCount = 1
-          onGround = false
+          vy = 40 * currentScale; jumpCount = 1; onGround = false
           playTone(400 * currentScale, 'square', 0.12, 0.1)
         } else if (jumpCount < 2) {
-          vy = 35 * currentScale
-          jumpCount = 2
+          vy = 35 * currentScale; jumpCount = 2
           playTone(600 * currentScale, 'square', 0.12, 0.1)
         }
         spacePressedThisFrame = false
       }
 
-      px = nextX
-      py = nextY
+      px = nextX; py = nextY
 
       if (py > highestY) {
         highestY = py
-        const currentHigh = Math.floor(highestY / 10)
-        setHighScore(prev => currentHigh > prev ? currentHigh : prev)
+        setHighScore(prev => Math.floor(highestY / 10) > prev ? Math.floor(highestY / 10) : prev)
       }
       if (py < highestY - 50 * currentScale) {
-        px = 0
-        py = highestY + 15 * currentScale
-        vy = 0
-        highestY = py
-        shakeIntensity = 0.6
-        playTone(100, 'sawtooth', 0.4, 0.15)
+        px = 0; py = highestY + 15 * currentScale; vy = 0; highestY = py
+        shakeIntensity = 0.6; playTone(100, 'sawtooth', 0.4, 0.15)
       }
 
       const scaleY = 1.0 + Math.min(Math.abs(vy) * 0.018, 0.5) * (vy > 0 ? 1 : -1)
-      const scaleX = 1.0 / scaleY
-      playerCore.scale.set(scaleX, scaleY, scaleX)
-
+      playerCore.scale.set(1.0 / scaleY, scaleY, 1.0 / scaleY)
       playerGroup.position.set(px, py + 0.5 * currentScale, 0)
       playerGroup.scale.setScalar(currentScale)
 
@@ -367,23 +311,25 @@ export default function GameCanvas() {
       camera.position.y += ((py + 7 * currentScale) - camera.position.y) * 9 * delta + shakeY
       camera.position.z += (30 * currentScale - camera.position.z) * 9 * delta
       camera.lookAt(px * 0.5, py + 2.5 * currentScale, -5)
-      
-      const fog = scene.fog as THREE.FogExp2
-      fog.density = 0.012 / currentScale
 
-      particles.position.x = px * 0.9
-      particles.position.y = py * 0.9
-      particles.scale.setScalar(currentScale)
+      const particles = scene.children.find(c => c instanceof THREE.Points) as THREE.Points
+      if (particles) {
+        particles.position.x = px * 0.9
+        particles.position.y = py * 0.9
+        particles.scale.setScalar(currentScale)
+      }
       
       monolithGroup.position.y = py
       monolithGroup.scale.setScalar(currentScale)
 
+      lasers.forEach((laser, i) => {
+        laser.position.y = 100 + i * 300 + Math.sin(t + i) * 10
+      })
+
       for (let l = -1; l <= 1; l++) {
         const S = Math.pow(10, l)
-        const meshIdx = (l + 1 + colorShift) % 3
-        const mesh = instancedMeshes[meshIdx]
+        const mesh = instancedMeshes[(l + 1 + colorShift) % 3]
         const plats = generatePlatforms(S, py)
-        
         let i = 0
         for (const p of plats) {
           if (i >= 800) break
@@ -413,17 +359,6 @@ export default function GameCanvas() {
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('keydown', e => handleKey(e, true))
       window.removeEventListener('keyup', e => handleKey(e, false))
-      cancelAnimationFrame(animationId)
-      
-      scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
-          if (object.geometry) object.geometry.dispose()
-          if (object.material) {
-            if (Array.isArray(object.material)) object.material.forEach(m => m.dispose())
-            else object.material.dispose()
-          }
-        }
-      })
       renderer.dispose()
     }
   }, [])
@@ -455,9 +390,12 @@ export default function GameCanvas() {
           </div>
 
           <div className="flex justify-between items-center mb-4 py-5 border-y border-white/10">
-            <span className="text-cyan-500 text-[10px] tracking-[0.3em] uppercase font-bold">Realm Shifts</span>
-            <span className={`font-mono font-black text-5xl ${score > 0 ? 'text-pink-500' : score < 0 ? 'text-indigo-400' : 'text-gray-100'} drop-shadow-lg`}>
-              {score > 0 ? '+' : ''}{score}
+            <span className="text-cyan-500 text-[10px] tracking-[0.3em] uppercase font-bold">Current Realm</span>
+            <span className={`font-mono font-black text-2xl uppercase tracking-widest ${
+              currentBiome === 'micro' ? 'text-green-400' : 
+              currentBiome === 'macro' ? 'text-indigo-400' : 'text-cyan-400'
+            } drop-shadow-lg`}>
+              {currentBiome}
             </span>
           </div>
 
@@ -486,9 +424,7 @@ export default function GameCanvas() {
           <button 
             onClick={() => {
               setGameStarted(true)
-              if (!audioCtxRef.current) {
-                audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-              }
+              if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
             }}
             className="px-12 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-lg rounded-lg hover:from-cyan-400 hover:to-blue-500 transition-all duration-300 shadow-[0_0_30px_rgba(0,255,255,0.5)] hover:shadow-[0_0_50px_rgba(0,255,255,0.8)] uppercase tracking-widest"
           >
@@ -500,3 +436,4 @@ export default function GameCanvas() {
     </div>
   )
 }
+
