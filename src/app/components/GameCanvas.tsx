@@ -5,6 +5,40 @@ import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+
+const DistortionShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uDistortion: { value: 0.0 },
+    uTime: { value: 0.0 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uDistortion;
+    uniform float uTime;
+    varying vec2 vUv;
+    void main() {
+      vec2 center = vUv - 0.5;
+      float dist = length(center);
+      float warp = 1.0 + uDistortion * sin(dist * 12.0 - uTime * 3.0) * 0.15;
+      vec2 warpedUv = 0.5 + center * warp;
+      float chromatic = uDistortion * 0.008;
+      float r = texture2D(tDiffuse, warpedUv + vec2(chromatic, 0.0)).r;
+      float g = texture2D(tDiffuse, warpedUv).g;
+      float b = texture2D(tDiffuse, warpedUv - vec2(chromatic, 0.0)).b;
+      float a = texture2D(tDiffuse, warpedUv).a;
+      gl_FragColor = vec4(r, g, b, a);
+    }
+  `
+}
 
 export default function GameCanvas() {
   const mountRef = useRef<HTMLDivElement>(null)
@@ -42,6 +76,8 @@ export default function GameCanvas() {
     bloomPass.strength = 1.2
     bloomPass.radius = 0.7
     composer.addPass(bloomPass)
+    const distortionPass = new ShaderPass(DistortionShader)
+    composer.addPass(distortionPass)
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.3))
     const dirLight = new THREE.DirectionalLight(0x4477ff, 4)
@@ -50,17 +86,6 @@ export default function GameCanvas() {
     const rimLight = new THREE.DirectionalLight(0xff0055, 2.5)
     rimLight.position.set(-30, -10, -20)
     scene.add(rimLight)
-
-    const monolithGroup = new THREE.Group()
-    scene.add(monolithGroup)
-    const monolithMat = new THREE.MeshPhysicalMaterial({ color: 0x05070a, metalness: 0.95, roughness: 0.3, clearcoat: 1.0 })
-    const monolith = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 3000, 32), monolithMat)
-    monolith.position.set(0, 0, -25)
-    monolithGroup.add(monolith)
-    const wireMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.08 })
-    const monolithWire = new THREE.Mesh(new THREE.CylinderGeometry(15.3, 15.3, 3000, 16, 150), wireMat)
-    monolithWire.position.set(0, 0, -25)
-    monolithGroup.add(monolithWire)
 
     const playerGroup = new THREE.Group()
     scene.add(playerGroup)
@@ -79,17 +104,35 @@ export default function GameCanvas() {
     const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.7 }))
     scene.add(trail)
 
-    const normalMat = new THREE.MeshPhysicalMaterial({ color: 0x020305, emissive: 0xff0055, emissiveIntensity: 0.8, roughness: 0.1, metalness: 0.95, clearcoat: 1.0 })
-    const microMat = new THREE.MeshPhysicalMaterial({ color: 0x0a1a0a, emissive: 0x00ff88, emissiveIntensity: 0.9, roughness: 0.4, metalness: 0.2, clearcoat: 0.5, transparent: true, opacity: 0.9 })
-    const macroMat = new THREE.MeshStandardMaterial({ color: 0x2a2a35, emissive: 0x111122, emissiveIntensity: 0.3, roughness: 0.9, metalness: 0.1 })
+    const normalMat = new THREE.MeshPhysicalMaterial({ color: 0x020305, emissive: 0xff0055, emissiveIntensity: 1.5, roughness: 0.1, metalness: 0.95, clearcoat: 1.0, fog: false })
+    const microMat = new THREE.MeshPhysicalMaterial({ color: 0x0a2a1a, emissive: 0x00ff88, emissiveIntensity: 2.0, roughness: 0.3, metalness: 0.1, clearcoat: 0.8, transparent: true, opacity: 0.9, fog: false })
+    const macroMat = new THREE.MeshStandardMaterial({ color: 0x3a3a45, emissive: 0x4455ff, emissiveIntensity: 0.8, roughness: 0.95, metalness: 0.05, fog: false })
+
+    const edgeNormalMat = new THREE.MeshBasicMaterial({ color: 0xff3377, fog: false })
+    const edgeMicroMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, fog: false })
+    const edgeMacroMat = new THREE.MeshBasicMaterial({ color: 0x6677ff, fog: false })
+
+    const platGeo = new THREE.BoxGeometry(1, 1, 1)
+    const edgeGeo = new THREE.BoxGeometry(1, 1, 1)
 
     const instancedMeshes = [
-      new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), normalMat, 800),
-      new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), microMat, 800),
-      new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), macroMat, 800)
+      new THREE.InstancedMesh(platGeo, normalMat, 800),
+      new THREE.InstancedMesh(platGeo, microMat, 800),
+      new THREE.InstancedMesh(platGeo, macroMat, 800)
+    ]
+
+    const edgeMeshes = [
+      new THREE.InstancedMesh(edgeGeo, edgeNormalMat, 800),
+      new THREE.InstancedMesh(edgeGeo, edgeMicroMat, 800),
+      new THREE.InstancedMesh(edgeGeo, edgeMacroMat, 800)
     ]
     
     instancedMeshes.forEach(m => {
+      m.frustumCulled = false
+      m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 500000)
+      scene.add(m)
+    })
+    edgeMeshes.forEach(m => {
       m.frustumCulled = false
       m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 500000)
       scene.add(m)
@@ -106,33 +149,41 @@ export default function GameCanvas() {
       lasers.push(laser)
     }
 
-    const keyGeo = new THREE.IcosahedronGeometry(0.5, 0)
-    const keyMat = new THREE.MeshPhysicalMaterial({ color: 0xffaa00, emissive: 0xffaa00, emissiveIntensity: 1.5, roughness: 0.1, metalness: 0.8 })
+    const keyGeo = new THREE.IcosahedronGeometry(0.8, 1)
+    const keyMat = new THREE.MeshPhysicalMaterial({ color: 0xffaa00, emissive: 0xffaa00, emissiveIntensity: 3.0, roughness: 0.1, metalness: 0.8 })
     const worldKey = new THREE.Mesh(keyGeo, keyMat)
-    worldKey.position.set(12, 15, 0)
+    const keyLight = new THREE.PointLight(0xffaa00, 5, 15)
+    worldKey.add(keyLight)
+    worldKey.position.set(12, 25, 0)
     scene.add(worldKey)
 
     const afterimages: THREE.Mesh[] = []
-    const afterimageMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
+    const afterimageMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })
 
+    const pCount = 1500
     const pGeo = new THREE.BufferGeometry()
-    const pPos = new Float32Array(4500)
-    for(let i = 0; i < 1500; i++) {
+    const pPos = new Float32Array(pCount * 3)
+    const pColors = new Float32Array(pCount * 3)
+    for(let i = 0; i < pCount; i++) {
       pPos[i*3] = (Math.random() - 0.5) * 200
       pPos[i*3+1] = (Math.random() - 0.5) * 200
       pPos[i*3+2] = (Math.random() - 0.5) * 80 - 10
+      pColors[i*3] = 0.8 + Math.random() * 0.2
+      pColors[i*3+1] = 0.8 + Math.random() * 0.2
+      pColors[i*3+2] = 0.9 + Math.random() * 0.1
     }
     pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3))
-    scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.5 })))
+    pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3))
+    const pMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.5, vertexColors: true })
+    const particles = new THREE.Points(pGeo, pMat)
+    scene.add(particles)
 
-    const keys = { a: false, d: false, space: false, q: false, e: false, shift: false, f: false }
+    const keys = { a: false, d: false, space: false, q: false, e: false, shift: false }
     let spacePressedThisFrame = false
-    let fPressedThisFrame = false
 
     const handleKey = (e: KeyboardEvent, isDown: boolean) => {
       const k = e.code.toLowerCase().replace('key', '')
       if (k === 'space' && isDown && !keys.space) spacePressedThisFrame = true
-      if (k === 'keyf' && isDown && !keys.f) fPressedThisFrame = true
       if (k in keys) keys[k as keyof typeof keys] = isDown
       if (isDown && !audioCtxRef.current) initAudio()
       if (isDown && k === 'space' && !gameStarted) setGameStarted(true)
@@ -165,9 +216,12 @@ export default function GameCanvas() {
     let isZenoDashing = false, zenoDashFrames = 0, zenoDashDirection = 1
     let heldObject: THREE.Mesh | null = null
     let keyCollected = false
+    let distortionAmount = 0.0
+    let prevScale = 1
     
     const trailHistory = Array(25).fill(new THREE.Vector3(0, 10, 0))
     const dummy = new THREE.Object3D()
+    const edgeDummy = new THREE.Object3D()
 
     const generatePlatforms = (S: number, playerY: number) => {
       const plats = []
@@ -178,7 +232,7 @@ export default function GameCanvas() {
       for (let idx = startIdx; idx <= startIdx + 160; idx++) {
         if (Math.abs(idx) % 11 === 0) continue
         const pVal = pattern[(idx % 16 + 16) % 16]
-        plats.push({ x: pVal * S, y: idx * stepY, top: idx * stepY + 0.25 * S, w: 5.5 * S })
+        plats.push({ x: pVal * S, y: idx * stepY, top: idx * stepY + 0.25 * S, w: 5.5 * S, h: 0.5 * S })
       }
       return plats
     }
@@ -190,19 +244,18 @@ export default function GameCanvas() {
 
       if (scale < 0.3) {
         newBiome = 'micro'
-        targetColor = new THREE.Color(0x051a0a)
-        targetFogDensity = 0.04
+        targetColor = new THREE.Color(0x021a0a)
+        targetFogDensity = 0.05
       } else if (scale > 3.0) {
         newBiome = 'macro'
-        targetColor = new THREE.Color(0x020208)
-        targetFogDensity = 0.005
+        targetColor = new THREE.Color(0x010108)
+        targetFogDensity = 0.004
       }
 
       if (newBiome !== currentBiome) setCurrentBiome(newBiome)
 
       const bg = scene.background as THREE.Color
       if (bg) bg.lerp(targetColor, 0.05)
-      
       const fog = scene.fog as THREE.FogExp2
       if (fog) {
         fog.color.lerp(targetColor, 0.05)
@@ -216,6 +269,15 @@ export default function GameCanvas() {
       const rawDelta = Math.min((now - lastTime) / 1000, 0.03)
       lastTime = now
       const t = now * 0.002
+
+      const scaleChangeRate = Math.abs(currentScale - prevScale) / Math.max(prevScale, 0.001)
+      prevScale = currentScale
+      const targetDistortion = Math.min(scaleChangeRate * 8, 1.0)
+      distortionAmount += (targetDistortion - distortionAmount) * 5 * rawDelta
+      if (distortionPass.uniforms) {
+        distortionPass.uniforms.uDistortion.value = distortionAmount
+        distortionPass.uniforms.uTime.value = t
+      }
 
       const targetTimeScale = currentScale > 2.5 ? 0.3 : (currentScale < 0.4 ? 1.8 : 1.0)
       timeScale += (targetTimeScale - timeScale) * 3 * rawDelta
@@ -282,8 +344,8 @@ export default function GameCanvas() {
       for (let i = afterimages.length - 1; i >= 0; i--) {
         const img = afterimages[i]
         const mat = img.material as THREE.MeshBasicMaterial
-        mat.opacity -= 0.05
-        img.scale.multiplyScalar(0.9)
+        mat.opacity -= 0.025
+        img.scale.multiplyScalar(0.92)
         if (mat.opacity <= 0) {
           scene.remove(img)
           afterimages.splice(i, 1)
@@ -305,9 +367,11 @@ export default function GameCanvas() {
         const S = Math.pow(10, l)
         for (const p of generatePlatforms(S, py)) {
           if (nextX > p.x - p.w / 2 - playerW / 2 && nextX < p.x + p.w / 2 + playerW / 2) {
-            if (py >= p.top - 0.2 * currentScale && nextY <= p.top && p.top > maxHitY) {
-              maxHitY = p.top
-              onGround = true
+            if (py >= p.top - 0.5 * currentScale && nextY <= p.top) {
+              if (p.top > maxHitY) {
+                maxHitY = p.top
+                onGround = true
+              }
             }
           }
         }
@@ -342,26 +406,20 @@ export default function GameCanvas() {
         spacePressedThisFrame = false
       }
 
-      if (fPressedThisFrame) {
-        if (!heldObject && !keyCollected) {
-          const keyWorldPos = new THREE.Vector3()
-          worldKey.getWorldPosition(keyWorldPos)
-          const dist = Math.sqrt(Math.pow(px - keyWorldPos.x, 2) + Math.pow(py - keyWorldPos.y, 2))
-          if (dist < 3 * currentScale) {
-            heldObject = worldKey
-            scene.remove(worldKey)
-            playerGroup.add(heldObject)
-            heldObject.position.set(1.2, 0, 0)
-            playTone(1200, 'sine', 0.2, 0.1)
-          }
-        } else if (heldObject) {
-          playerGroup.remove(heldObject)
-          scene.add(heldObject)
-          heldObject.position.set(px + 1.2 * currentScale, py, 0)
-          heldObject = null
-          playTone(300, 'sine', 0.2, 0.1)
+      if (!heldObject && !keyCollected) {
+        worldKey.position.x += (px + 12 * currentScale - worldKey.position.x) * 0.05
+        worldKey.position.y += (highestY + 20 * currentScale - worldKey.position.y) * 0.05
+        worldKey.rotation.y += 3 * delta
+        worldKey.rotation.x += 1 * delta
+        
+        const dist = Math.sqrt(Math.pow(px - worldKey.position.x, 2) + Math.pow(py - worldKey.position.y, 2))
+        if (dist < 4 * currentScale) {
+          heldObject = worldKey
+          scene.remove(worldKey)
+          playerGroup.add(heldObject)
+          heldObject.position.set(1.5, 0.5, 0)
+          playTone(1200, 'sine', 0.2, 0.15)
         }
-        fPressedThisFrame = false
       }
 
       if (heldObject) {
@@ -373,9 +431,6 @@ export default function GameCanvas() {
           playTone(1500, 'sine', 0.5, 0.2)
           shakeIntensity = 0.5
         }
-      } else if (!keyCollected) {
-        worldKey.rotation.y += 2 * delta
-        worldKey.position.y = 15 + Math.sin(t * 2) * 0.5
       }
 
       px = nextX; py = nextY
@@ -403,15 +458,26 @@ export default function GameCanvas() {
       camera.position.z += (30 * currentScale - camera.position.z) * 9 * delta
       camera.lookAt(px * 0.5, py + 2.5 * currentScale, -5)
 
-      const particles = scene.children.find(c => c instanceof THREE.Points) as THREE.Points
-      if (particles) {
-        particles.position.x = px * 0.9
-        particles.position.y = py * 0.9
-        particles.scale.setScalar(currentScale)
+      const positions = pGeo.attributes.position.array as Float32Array
+      const colors = pGeo.attributes.color.array as Float32Array
+      for (let i = 0; i < pCount; i++) {
+        positions[i*3+1] += Math.sin(t * 0.3 + i * 0.1) * 0.003 * timeScale
+        if (currentScale < 0.3) {
+          colors[i*3] = 0.2; colors[i*3+1] = 0.8; colors[i*3+2] = 0.4
+        } else if (currentScale > 3.0) {
+          const twinkle = 0.5 + 0.5 * Math.sin(t * 2 + i * 0.5)
+          colors[i*3] = twinkle; colors[i*3+1] = twinkle * 0.9; colors[i*3+2] = twinkle
+        } else {
+          colors[i*3] = 0.8; colors[i*3+1] = 0.85; colors[i*3+2] = 0.9
+        }
       }
-      
-      monolithGroup.position.y = py
-      monolithGroup.scale.setScalar(currentScale)
+      pGeo.attributes.position.needsUpdate = true
+      pGeo.attributes.color.needsUpdate = true
+      pMat.size = currentScale < 0.3 ? 2.5 : (currentScale > 3.0 ? 0.04 : 0.08)
+      pMat.opacity = currentScale > 3.0 ? 0.8 : 0.5
+      particles.position.x = px * 0.9
+      particles.position.y = py * 0.9
+      particles.scale.setScalar(currentScale)
 
       lasers.forEach((laser, i) => {
         laser.position.y = 100 + i * 300 + Math.sin(t + i) * 10
@@ -419,18 +485,33 @@ export default function GameCanvas() {
 
       for (let l = -1; l <= 1; l++) {
         const S = Math.pow(10, l)
-        const mesh = instancedMeshes[(l + 1 + colorShift) % 3]
+        const meshIdx = (l + 1 + colorShift) % 3
+        const mesh = instancedMeshes[meshIdx]
+        const edgeMesh = edgeMeshes[meshIdx]
         const plats = generatePlatforms(S, py)
+        
         let i = 0
         for (const p of plats) {
           if (i >= 800) break
+
           dummy.position.set(p.x, p.y, -2 * S)
-          dummy.scale.set(p.w, 0.5 * S, 4 * S)
+          dummy.scale.set(p.w, p.h, 4 * S)
+          dummy.rotation.set(0, 0, 0)
           dummy.updateMatrix()
-          mesh.setMatrixAt(i++, dummy.matrix)
+          mesh.setMatrixAt(i, dummy.matrix)
+
+          edgeDummy.position.set(p.x, p.top + 0.02 * S, -2 * S)
+          edgeDummy.scale.set(p.w, 0.06 * S, 4.1 * S)
+          edgeDummy.rotation.set(0, 0, 0)
+          edgeDummy.updateMatrix()
+          edgeMesh.setMatrixAt(i, edgeDummy.matrix)
+
+          i++
         }
         mesh.count = i
         mesh.instanceMatrix.needsUpdate = true
+        edgeMesh.count = i
+        edgeMesh.instanceMatrix.needsUpdate = true
       }
 
       composer.render()
@@ -502,8 +583,7 @@ export default function GameCanvas() {
             <div className="flex items-center gap-4"><span className="bg-white/10 border border-white/20 px-3 py-2 rounded-md text-white min-w-[48px] text-center shadow-lg">SPC</span> Jump</div>
             <div className="flex items-center gap-4"><span className="bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(0,255,255,0.3)]">Q</span> Shrink</div>
             <div className="flex items-center gap-4"><span className="bg-blue-500/20 border border-blue-400/40 text-blue-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(0,100,255,0.3)]">E</span> Grow</div>
-            <div className="flex items-center gap-4"><span className="bg-purple-500/20 border border-purple-400/40 text-purple-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(150,0,255,0.3)]">SHIFT</span> Zeno Dash</div>
-            <div className="flex items-center gap-4"><span className="bg-amber-500/20 border border-amber-400/40 text-amber-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(255,170,0,0.3)]">F</span> Grab Key</div>
+            <div className="flex items-center gap-4 col-span-2 justify-center"><span className="bg-purple-500/20 border border-purple-400/40 text-purple-300 px-3 py-2 rounded-md min-w-[60px] text-center shadow-[0_0_10px_rgba(150,0,255,0.3)]">SHIFT</span> Zeno Dash</div>
           </div>
         </div>
       </div>
