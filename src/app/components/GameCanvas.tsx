@@ -106,6 +106,15 @@ export default function GameCanvas() {
       lasers.push(laser)
     }
 
+    const keyGeo = new THREE.IcosahedronGeometry(0.5, 0)
+    const keyMat = new THREE.MeshPhysicalMaterial({ color: 0xffaa00, emissive: 0xffaa00, emissiveIntensity: 1.5, roughness: 0.1, metalness: 0.8 })
+    const worldKey = new THREE.Mesh(keyGeo, keyMat)
+    worldKey.position.set(12, 15, 0)
+    scene.add(worldKey)
+
+    const afterimages: THREE.Mesh[] = []
+    const afterimageMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
+
     const pGeo = new THREE.BufferGeometry()
     const pPos = new Float32Array(4500)
     for(let i = 0; i < 1500; i++) {
@@ -116,12 +125,14 @@ export default function GameCanvas() {
     pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3))
     scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.5 })))
 
-    const keys = { a: false, d: false, space: false, q: false, e: false }
+    const keys = { a: false, d: false, space: false, q: false, e: false, shift: false, f: false }
     let spacePressedThisFrame = false
+    let fPressedThisFrame = false
 
     const handleKey = (e: KeyboardEvent, isDown: boolean) => {
       const k = e.code.toLowerCase().replace('key', '')
       if (k === 'space' && isDown && !keys.space) spacePressedThisFrame = true
+      if (k === 'keyf' && isDown && !keys.f) fPressedThisFrame = true
       if (k in keys) keys[k as keyof typeof keys] = isDown
       if (isDown && !audioCtxRef.current) initAudio()
       if (isDown && k === 'space' && !gameStarted) setGameStarted(true)
@@ -150,6 +161,11 @@ export default function GameCanvas() {
     let px = 0, py = 10, vx = 0, vy = 0
     let currentScale = 1, targetScale = 1, colorShift = 0, shiftsCompleted = 0
     let lastTime = performance.now(), highestY = py, shakeIntensity = 0, jumpCount = 0, onGround = false
+    let timeScale = 1.0
+    let isZenoDashing = false, zenoDashFrames = 0, zenoDashDirection = 1
+    let heldObject: THREE.Mesh | null = null
+    let keyCollected = false
+    
     const trailHistory = Array(25).fill(new THREE.Vector3(0, 10, 0))
     const dummy = new THREE.Object3D()
 
@@ -197,16 +213,20 @@ export default function GameCanvas() {
     const animate = () => {
       const animationId = requestAnimationFrame(animate)
       const now = performance.now()
-      const delta = Math.min((now - lastTime) / 1000, 0.03)
+      const rawDelta = Math.min((now - lastTime) / 1000, 0.03)
       lastTime = now
       const t = now * 0.002
 
-      playerCore.rotation.y = t * 1.5
-      playerCore.rotation.x = t * 0.8
+      const targetTimeScale = currentScale > 2.5 ? 0.3 : (currentScale < 0.4 ? 1.8 : 1.0)
+      timeScale += (targetTimeScale - timeScale) * 3 * rawDelta
+      const delta = rawDelta * timeScale
+
+      playerCore.rotation.y = t * 1.5 * timeScale
+      playerCore.rotation.x = t * 0.8 * timeScale
       playerGroup.children[1].rotation.x = Math.PI / 2 + Math.sin(t) * 0.4
-      playerGroup.children[1].rotation.y = t * 2
+      playerGroup.children[1].rotation.y = t * 2 * timeScale
       playerGroup.children[2].rotation.z = Math.PI / 2 + Math.cos(t * 1.1) * 0.5
-      playerGroup.children[2].rotation.x = -t * 1.5
+      playerGroup.children[2].rotation.x = -t * 1.5 * timeScale
       
       if (keys.q) targetScale *= 0.94
       if (keys.e) targetScale *= 1.06
@@ -234,6 +254,41 @@ export default function GameCanvas() {
         trailPos[i*3+2] = trailHistory[i].z
       }
       trailGeo.attributes.position.needsUpdate = true
+
+      if (keys.shift && !isZenoDashing && onGround) {
+        isZenoDashing = true
+        zenoDashFrames = 0
+        zenoDashDirection = vx >= 0 ? 1 : -1
+        playTone(800, 'sine', 0.3, 0.15)
+      }
+
+      if (isZenoDashing) {
+        zenoDashFrames++
+        const maxDashDist = 12 * currentScale
+        const step = maxDashDist * Math.pow(0.5, zenoDashFrames)
+        px += zenoDashDirection * step * 3
+        
+        const afterimage = new THREE.Mesh(new THREE.OctahedronGeometry(0.4 * currentScale, 0), afterimageMat)
+        afterimage.position.set(px, py + 0.5 * currentScale, 0)
+        scene.add(afterimage)
+        afterimages.push(afterimage)
+
+        if (step < 0.05 || zenoDashFrames > 15) {
+          isZenoDashing = false
+          zenoDashFrames = 0
+        }
+      }
+
+      for (let i = afterimages.length - 1; i >= 0; i--) {
+        const img = afterimages[i]
+        const mat = img.material as THREE.MeshBasicMaterial
+        mat.opacity -= 0.05
+        img.scale.multiplyScalar(0.9)
+        if (mat.opacity <= 0) {
+          scene.remove(img)
+          afterimages.splice(i, 1)
+        }
+      }
 
       const targetVx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0)
       vx += (targetVx * 25 * currentScale - vx) * 15 * delta
@@ -285,6 +340,42 @@ export default function GameCanvas() {
           playTone(600 * currentScale, 'square', 0.12, 0.1)
         }
         spacePressedThisFrame = false
+      }
+
+      if (fPressedThisFrame) {
+        if (!heldObject && !keyCollected) {
+          const keyWorldPos = new THREE.Vector3()
+          worldKey.getWorldPosition(keyWorldPos)
+          const dist = Math.sqrt(Math.pow(px - keyWorldPos.x, 2) + Math.pow(py - keyWorldPos.y, 2))
+          if (dist < 3 * currentScale) {
+            heldObject = worldKey
+            scene.remove(worldKey)
+            playerGroup.add(heldObject)
+            heldObject.position.set(1.2, 0, 0)
+            playTone(1200, 'sine', 0.2, 0.1)
+          }
+        } else if (heldObject) {
+          playerGroup.remove(heldObject)
+          scene.add(heldObject)
+          heldObject.position.set(px + 1.2 * currentScale, py, 0)
+          heldObject = null
+          playTone(300, 'sine', 0.2, 0.1)
+        }
+        fPressedThisFrame = false
+      }
+
+      if (heldObject) {
+        heldObject.rotation.y += 2 * delta
+        heldObject.rotation.x += 1 * delta
+        if (currentScale > 5.0 && !keyCollected) {
+          keyCollected = true
+          setScore(prev => prev + 50)
+          playTone(1500, 'sine', 0.5, 0.2)
+          shakeIntensity = 0.5
+        }
+      } else if (!keyCollected) {
+        worldKey.rotation.y += 2 * delta
+        worldKey.position.y = 15 + Math.sin(t * 2) * 0.5
       }
 
       px = nextX; py = nextY
@@ -411,6 +502,8 @@ export default function GameCanvas() {
             <div className="flex items-center gap-4"><span className="bg-white/10 border border-white/20 px-3 py-2 rounded-md text-white min-w-[48px] text-center shadow-lg">SPC</span> Jump</div>
             <div className="flex items-center gap-4"><span className="bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(0,255,255,0.3)]">Q</span> Shrink</div>
             <div className="flex items-center gap-4"><span className="bg-blue-500/20 border border-blue-400/40 text-blue-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(0,100,255,0.3)]">E</span> Grow</div>
+            <div className="flex items-center gap-4"><span className="bg-purple-500/20 border border-purple-400/40 text-purple-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(150,0,255,0.3)]">SHIFT</span> Zeno Dash</div>
+            <div className="flex items-center gap-4"><span className="bg-amber-500/20 border border-amber-400/40 text-amber-300 px-3 py-2 rounded-md min-w-[40px] text-center shadow-[0_0_10px_rgba(255,170,0,0.3)]">F</span> Grab Key</div>
           </div>
         </div>
       </div>
@@ -436,4 +529,5 @@ export default function GameCanvas() {
     </div>
   )
 }
+
 
