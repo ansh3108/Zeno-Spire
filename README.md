@@ -24,3 +24,8 @@ It is an infinite, multi scale platformer game.
 
 <img width="1917" height="843" alt="Screenshot 2026-07-03 180939" src="https://github.com/user-attachments/assets/d7f23f39-4c24-405c-8537-71e9230bbf93" />
 <img width="1913" height="891" alt="Screenshot 2026-07-03 180640" src="https://github.com/user-attachments/assets/1c5b8eba-20ad-497d-91e9-70edd1012cff" />
+
+
+
+## Theme
+It fits the endless theme by using procedural generations to build a tower that never actually runs out of platforms, you cross infinite gaps using infinite, shrinking steps while macro and micro shifts make sure theres no final level(in both directions)
